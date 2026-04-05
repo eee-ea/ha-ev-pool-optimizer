@@ -1,0 +1,66 @@
+type: custom:plotly-graph
+title: Runtime & cost — last 2 weeks
+hours_to_show: 2w
+refresh_interval: 300
+entities:
+  # Left y-axis: runtime (minutes per hour)
+  - entity: sensor.pool_heatpump_minutes_this_hour
+    name: Pool runtime
+    statistic: max
+    period: hour
+
+  - entity: sensor.ev_charger_minutes_this_hour
+    name: EV charger runtime
+    statistic: max
+    period: hour
+
+  # Right y-axis: cost per hour — grows within each hour, max ≈ hour total
+  - entity: sensor.pool_cost_this_hour
+    name: Pool cost/h
+    statistic: max
+    period: hour
+    yaxis: y2
+
+  - entity: sensor.ev_cost_this_hour
+    name: EV cost/h
+    statistic: max
+    period: hour
+    yaxis: y2
+
+  # Right y-axis: cumulative cost per day — max at end of day = daily total
+  - entity: sensor.pool_cost_today
+    name: Pool cost/day
+    statistic: max
+    period: day
+    yaxis: y2
+
+  - entity: sensor.ev_cost_today
+    name: EV cost/day
+    statistic: max
+    period: day
+    yaxis: y2
+
+layout:
+  height: 380
+  margin:
+    t: 40
+    l: 50
+    r: 65
+    b: 40
+  yaxis:
+    title:
+      text: Minutes per hour
+    rangemode: tozero
+  yaxis2:
+    title:
+      # Update to match your currency
+      text: Cost (PLACEHOLDER_CURRENCY)
+    overlaying: y
+    side: right
+    rangemode: tozero
+    showgrid: false
+  xaxis:
+    title:
+      text: Time
+config:
+  scrollZoom: false

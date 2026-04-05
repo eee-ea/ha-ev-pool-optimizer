@@ -1,0 +1,38 @@
+"""Placeholder string constants used in template substitution."""
+
+DOMAIN = "ha_energy_optimizer"
+
+TEMPLATE_FILES = [
+    "energy_optimizer_package.yaml",
+    "overview_card.yaml",
+    "plotly_card.yaml",
+]
+
+# Keys must match exactly what appears in the YAML template files.
+# The config flow stores values under these keys.
+PH_NORDPOOL_AREA          = "PLACEHOLDER_NORDPOOL_AREA"
+PH_NORDPOOL_CONFIG_ENTRY  = "PLACEHOLDER_NORDPOOL_CONFIG_ENTRY"
+PH_CURRENCY               = "PLACEHOLDER_CURRENCY"
+PH_PRICE_VAT              = "PLACEHOLDER_PRICE_VAT"
+PH_PRICE_SURCHARGE        = "PLACEHOLDER_PRICE_SURCHARGE"
+PH_GRID_FEE               = "PLACEHOLDER_GRID_FEE"
+PH_EV_CHARGER_SWITCH      = "PLACEHOLDER_EV_CHARGER_SWITCH"
+PH_EV_CHARGING_AMPS       = "PLACEHOLDER_EV_CHARGING_AMPS"
+PH_EASEE_DEVICE_ID        = "PLACEHOLDER_EASEE_DEVICE_ID"
+PH_EV_PLUGGED_IN          = "PLACEHOLDER_EV_PLUGGED_IN"
+PH_EV_RANGE               = "PLACEHOLDER_EV_RANGE"
+PH_POOL_SWITCH            = "PLACEHOLDER_POOL_SWITCH"
+PH_POOL_TEMPERATURE       = "PLACEHOLDER_POOL_TEMPERATURE"
+PH_EV2_PLUGGED_IN         = "PLACEHOLDER_EV2_PLUGGED_IN"
+PH_EV2_RANGE              = "PLACEHOLDER_EV2_RANGE"
+PH_EV2_CHARGING_AMPS      = "PLACEHOLDER_EV2_CHARGING_AMPS"
+PH_EV_CHARGING            = "PLACEHOLDER_EV_CHARGING"
+PH_EV2_CHARGING           = "PLACEHOLDER_EV2_CHARGING"
+PH_EV_WAKE_BUTTON         = "PLACEHOLDER_EV_WAKE_BUTTON"
+PH_EV2_WAKE_BUTTON        = "PLACEHOLDER_EV2_WAKE_BUTTON"
+PH_GRID_EXPORT            = "PLACEHOLDER_GRID_EXPORT"
+PH_GRID_IMPORT            = "PLACEHOLDER_GRID_IMPORT"
+PH_SOLAR_FORECAST         = "PLACEHOLDER_SOLAR_FORECAST"
+
+# Special compound placeholder built from NORDPOOL_AREA (always lowercase in HA entity IDs)
+PH_NORDPOOL_ENTITY = "sensor.nord_pool_PLACEHOLDER_NORDPOOL_AREA_current_price"

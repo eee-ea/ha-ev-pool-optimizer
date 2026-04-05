@@ -1,0 +1,862 @@
+homeassistant:
+  customize: {}
+
+input_boolean:
+  energy_optimization_enabled:
+    name: Energy optimization enabled
+    initial: true
+
+  ev_solar_charging_active:
+    name: EV solar charging active
+    initial: false
+
+input_number:
+  ev_target_range_km:
+    name: EV target range
+    min: 50
+    max: 600
+    step: 5
+    unit_of_measurement: km
+    initial: 420
+
+  ev2_target_range_km:
+    name: EV 2 target range
+    min: 50
+    max: 600
+    step: 5
+    unit_of_measurement: km
+    initial: 420
+
+  cheap_quarters_per_day:
+    name: Cheap quarters per day
+    min: 1
+    max: 96
+    step: 1
+    initial: 12
+
+  pool_target_temp:
+    name: Pool target temp
+    min: 10
+    max: 40
+    step: 0.5
+    unit_of_measurement: "°C"
+    initial: 28
+
+  pool_hp_power_kw:
+    name: Pool HP power
+    min: 0.5
+    max: 5
+    step: 0.1
+    unit_of_measurement: kW
+    initial: 1.8
+
+  ev_charge_current_a:
+    name: Max EV charge current
+    min: 6
+    max: 16
+    step: 1
+    unit_of_measurement: A
+    initial: 16
+
+  ev_charge_phases:
+    name: EV charge phases
+    min: 1
+    max: 3
+    step: 1
+    initial: 3
+
+  ev_solar_min_amps:
+    name: EV solar min charge amps
+    min: 5
+    max: 15
+    step: 1
+    unit_of_measurement: A
+    initial: 6
+
+  ev_km_per_amp_hour:
+    name: EV charging efficiency
+    min: 1.0
+    max: 10.0
+    step: 0.01
+    unit_of_measurement: km/A·h
+    initial: 3.57
+
+  ev2_km_per_amp_hour:
+    name: EV 2 charging efficiency
+    min: 1.0
+    max: 10.0
+    step: 0.01
+    unit_of_measurement: km/A·h
+    initial: 3.57
+
+  max_grid_price_pool:
+    name: Max grid price for pool
+    min: 0
+    max: 5
+    step: 0.01
+    unit_of_measurement: "PLACEHOLDER_CURRENCY/kWh"
+    initial: 1.0
+
+  max_grid_price_ev:
+    name: Max grid price for EV
+    min: 0
+    max: 5
+    step: 0.01
+    unit_of_measurement: "PLACEHOLDER_CURRENCY/kWh"
+    initial: 0.7
+
+  ev_night_price_limit:
+    name: EV night price limit
+    min: 0
+    max: 5
+    step: 0.01
+    unit_of_measurement: "PLACEHOLDER_CURRENCY/kWh"
+    initial: 0.70
+
+  ev2_night_price_limit:
+    name: EV 2 night price limit
+    min: 0
+    max: 5
+    step: 0.01
+    unit_of_measurement: "PLACEHOLDER_CURRENCY/kWh"
+    initial: 0.70
+
+timer:
+  pool_min_runtime:
+    name: Pool minimum runtime
+    duration: "00:20:00"
+
+  ev_min_runtime:
+    name: EV minimum runtime
+    duration: "00:30:00"
+
+template:
+  - sensor:
+      - name: Actual electricity price
+        unique_id: actual_electricity_price
+        # Update the formula constants to match your electricity tariff:
+        #   VAT multiplier  → PLACEHOLDER_PRICE_VAT
+        #   Surcharge       → PLACEHOLDER_PRICE_SURCHARGE
+        #   Fixed grid fee  → PLACEHOLDER_GRID_FEE  (currency/kWh)
+        unit_of_measurement: "PLACEHOLDER_CURRENCY/kWh"
+        availability: >
+          {{ has_value('sensor.nord_pool_PLACEHOLDER_NORDPOOL_AREA_current_price') }}
+        state: >
+          {{ ((states('sensor.nord_pool_PLACEHOLDER_NORDPOOL_AREA_current_price') | float(0)) * PLACEHOLDER_PRICE_VAT * PLACEHOLDER_PRICE_SURCHARGE + PLACEHOLDER_GRID_FEE) | round(2, default=0) }}
+
+      # ── Active EV sensors ───────────────────────────────────────────────
+      # EV 1 takes priority when plugged in; otherwise EV 2 is active.
+
+      - name: Active EV range
+        unique_id: active_ev_range
+        unit_of_measurement: km
+        state: >
+          {% if is_state('PLACEHOLDER_EV_PLUGGED_IN', 'on') %}
+            {{ states('PLACEHOLDER_EV_RANGE') }}
+          {% else %}
+            {{ states('PLACEHOLDER_EV2_RANGE') }}
+          {% endif %}
+
+      - name: Active EV target range km
+        unique_id: active_ev_target_range_km
+        unit_of_measurement: km
+        state: >
+          {% if is_state('PLACEHOLDER_EV_PLUGGED_IN', 'on') %}
+            {{ states('input_number.ev_target_range_km') }}
+          {% else %}
+            {{ states('input_number.ev2_target_range_km') }}
+          {% endif %}
+
+      - name: Active EV km per amp hour
+        unique_id: active_ev_km_per_amp_hour
+        unit_of_measurement: "km/A·h"
+        state: >
+          {% if is_state('PLACEHOLDER_EV_PLUGGED_IN', 'on') %}
+            {{ states('input_number.ev_km_per_amp_hour') }}
+          {% else %}
+            {{ states('input_number.ev2_km_per_amp_hour') }}
+          {% endif %}
+
+      - name: Active EV night price limit
+        unique_id: active_ev_night_price_limit
+        unit_of_measurement: "PLACEHOLDER_CURRENCY/kWh"
+        state: >
+          {% if is_state('PLACEHOLDER_EV_PLUGGED_IN', 'on') %}
+            {{ states('input_number.ev_night_price_limit') }}
+          {% else %}
+            {{ states('input_number.ev2_night_price_limit') }}
+          {% endif %}
+
+  - binary_sensor:
+      - name: Active EV is charging
+        unique_id: active_ev_is_charging
+        # ON while the active car is actively accepting charge.
+        # Goes OFF when the car reaches its own internal charge limit,
+        # even if the charger switch is still enabled.
+        state: >
+          {% if is_state('PLACEHOLDER_EV_PLUGGED_IN', 'on') %}
+            {{ is_state('PLACEHOLDER_EV_CHARGING', 'on') }}
+          {% else %}
+            {{ is_state('PLACEHOLDER_EV2_CHARGING', 'on') }}
+          {% endif %}
+
+  - binary_sensor:
+      - name: EV needs charge
+        unique_id: ev_needs_charge
+        state: >
+          {{
+            (is_state('PLACEHOLDER_EV_PLUGGED_IN', 'on') or is_state('PLACEHOLDER_EV2_PLUGGED_IN', 'on'))
+            and (states('sensor.active_ev_range') | float(999))
+                < (states('sensor.active_ev_target_range_km') | float(320))
+          }}
+
+      - name: Pool needs heat
+        unique_id: pool_needs_heat
+        state: >
+          {{
+            (states('PLACEHOLDER_POOL_TEMPERATURE') | float(99))
+            < (states('input_number.pool_target_temp') | float(28))
+          }}
+
+      - name: Solar surplus for pool now
+        unique_id: solar_surplus_for_pool_now
+        state: >
+          {% set export_kw = states('PLACEHOLDER_GRID_EXPORT') | float(0) %}
+          {% set hp_kw = states('input_number.pool_hp_power_kw') | float(1.8) %}
+          {{ export_kw >= hp_kw }}
+
+      - name: Solar surplus for EV now
+        unique_id: solar_surplus_for_ev_now
+        state: >
+          {% set export_kw = states('PLACEHOLDER_GRID_EXPORT') | float(0) %}
+          {% set min_amps = states('input_number.ev_solar_min_amps') | float(6) %}
+          {% set phases = states('input_number.ev_charge_phases') | float(3) %}
+          {% set min_ev_kw = (230 * min_amps * phases) / 1000 %}
+          {{ export_kw >= min_ev_kw }}
+
+      - name: Grid price cheap for pool
+        unique_id: grid_price_cheap_for_pool
+        state: >
+          {{
+            (states('sensor.actual_electricity_price') | float(99))
+            <= (states('input_number.max_grid_price_pool') | float(1.40))
+          }}
+
+      - name: Grid price cheap for EV
+        unique_id: grid_price_cheap_for_ev
+        state: >
+          {{
+            (states('sensor.actual_electricity_price') | float(99))
+            <= (states('input_number.max_grid_price_ev') | float(1.20))
+          }}
+
+      - name: Enough solar left today for EV
+        unique_id: enough_solar_left_today_for_ev
+        state: >
+          {% set remaining = states('PLACEHOLDER_SOLAR_FORECAST') | float(0) %}
+          {% set current_range = states('sensor.active_ev_range') | float(0) %}
+          {% set target_range = states('sensor.active_ev_target_range_km') | float(320) %}
+          {% set deficit_km = [target_range - current_range, 0] | max %}
+          {% set needed_kwh = deficit_km * 0.16 %}
+          {{ remaining >= needed_kwh }}
+
+      - name: EV night cheap window
+        unique_id: ev_night_cheap_window
+        state: >
+          {% set h = now().hour %}
+          {% set in_window = (h >= 23) or (h < 7) %}
+          {% set price = states('sensor.actual_electricity_price') | float(99) %}
+          {% set limit = states('sensor.active_ev_night_price_limit') | float(1.00) %}
+          {{ in_window and price <= limit }}
+
+      - name: Now is cheap quarter
+        unique_id: now_is_cheap_quarter
+        availability: >
+          {{ state_attr('sensor.cheapest_quarters_today', 'slots') is not none }}
+        state: >
+          {% set slots = state_attr('sensor.cheapest_quarters_today', 'slots') or [] %}
+          {% set now_ts = as_timestamp(now()) %}
+          {% set ns = namespace(hit=false) %}
+          {% for slot in slots %}
+            {% set start_ts = as_timestamp(as_datetime(slot.start)) %}
+            {% set end_ts = as_timestamp(as_datetime(slot.end)) %}
+            {% if now_ts >= start_ts and now_ts < end_ts %}
+              {% set ns.hit = true %}
+            {% endif %}
+          {% endfor %}
+          {{ ns.hit }}
+
+      - name: Pool should run now
+        unique_id: pool_should_run_now
+        state: >
+          {{
+            is_state('binary_sensor.pool_needs_heat', 'on')
+            and (
+              is_state('binary_sensor.solar_surplus_for_pool_now', 'on')
+              or (
+                is_state('binary_sensor.now_is_cheap_quarter', 'on')
+                and is_state('binary_sensor.grid_price_cheap_for_pool', 'on')
+              )
+            )
+          }}
+
+      - name: EV should charge now
+        unique_id: ev_should_charge_now
+        state: >
+          {{
+            is_state('binary_sensor.ev_needs_charge', 'on')
+            and (
+              is_state('binary_sensor.solar_surplus_for_ev_now', 'on')
+              or (
+                is_state('binary_sensor.enough_solar_left_today_for_ev', 'off')
+                and is_state('binary_sensor.now_is_cheap_quarter', 'on')
+                and is_state('binary_sensor.grid_price_cheap_for_ev', 'on')
+              )
+              or is_state('binary_sensor.ev_night_cheap_window', 'on')
+            )
+          }}
+
+      - name: EV charging now
+        unique_id: ev_charging_now
+        state: >
+          {{ is_state('PLACEHOLDER_EV_CHARGING', 'on')
+             or is_state('PLACEHOLDER_EV2_CHARGING', 'on') }}
+
+  - trigger:
+      - trigger: time_pattern
+        minutes: "/10"
+      - trigger: homeassistant
+        event: start
+      - trigger: state
+        entity_id: input_number.cheap_quarters_per_day
+    action:
+      - action: nordpool.get_prices_for_date
+        data:
+          # Find your config_entry ID:
+          # Settings → Devices & Services → Nord Pool → ⋮ → System Information
+          config_entry: PLACEHOLDER_NORDPOOL_CONFIG_ENTRY
+          date: "{{ now().strftime('%Y-%m-%d') }}"
+          areas: PLACEHOLDER_NORDPOOL_AREA
+          currency: PLACEHOLDER_CURRENCY
+        response_variable: np_today
+    sensor:
+      - name: Cheapest quarters today
+        unique_id: cheapest_quarters_today
+        availability: >
+          {{ np_today is mapping and 'PLACEHOLDER_NORDPOOL_AREA' in np_today }}
+        state: >
+          {% set items = np_today['PLACEHOLDER_NORDPOOL_AREA'] if np_today is mapping and 'PLACEHOLDER_NORDPOOL_AREA' in np_today else [] %}
+          {% set count = states('input_number.cheap_quarters_per_day') | int(12) %}
+          {% if items | count > 0 %}
+            {% set negatives = items | selectattr('price', 'lt', 0) | list %}
+            {% set nonneg = items | rejectattr('price', 'lt', 0) | sort(attribute='price') | list %}
+            {% set selected = negatives + nonneg[:count] %}
+            {{ selected | count }}
+          {% else %}
+            0
+          {% endif %}
+        attributes:
+          slots: >
+            {% set items = np_today['PLACEHOLDER_NORDPOOL_AREA'] if np_today is mapping and 'PLACEHOLDER_NORDPOOL_AREA' in np_today else [] %}
+            {% set count = states('input_number.cheap_quarters_per_day') | int(12) %}
+            {% if items | count > 0 %}
+              {% set negatives = items | selectattr('price', 'lt', 0) | list %}
+              {% set nonneg = items | rejectattr('price', 'lt', 0) | sort(attribute='price') | list %}
+              {% set selected = negatives + nonneg[:count] %}
+              {% set ns = namespace(out=[]) %}
+              {% for item in selected | sort(attribute='start') %}
+                {% set ns.out = ns.out + [{
+                  'start': item.start,
+                  'end': item.end,
+                  'price': (item.price / 1000)
+                }] %}
+              {% endfor %}
+              {{ ns.out }}
+            {% else %}
+              []
+            {% endif %}
+
+  - trigger:
+      - trigger: time_pattern
+        minutes: "/15"
+      - trigger: homeassistant
+        event: start
+      - trigger: state
+        entity_id: input_number.cheap_quarters_per_day
+    action:
+      - action: nordpool.get_prices_for_date
+        data:
+          config_entry: PLACEHOLDER_NORDPOOL_CONFIG_ENTRY
+          date: "{{ (now() + timedelta(days=1)).strftime('%Y-%m-%d') }}"
+          areas: PLACEHOLDER_NORDPOOL_AREA
+          currency: PLACEHOLDER_CURRENCY
+        response_variable: np_tomorrow
+    sensor:
+      - name: Cheapest quarters tomorrow
+        unique_id: cheapest_quarters_tomorrow
+        state: >
+          {% set items = np_tomorrow['PLACEHOLDER_NORDPOOL_AREA'] if np_tomorrow is defined and 'PLACEHOLDER_NORDPOOL_AREA' in np_tomorrow else [] %}
+          {% set count = states('input_number.cheap_quarters_per_day') | int(12) %}
+          {% if items | count > 0 %}
+            {% set negatives = items | selectattr('price', 'lt', 0) | list %}
+            {% set nonneg = items | rejectattr('price', 'lt', 0) | sort(attribute='price') | list %}
+            {% set selected = negatives + nonneg[:count] %}
+            {{ selected | count }}
+          {% else %}
+            0
+          {% endif %}
+        attributes:
+          slots: >
+            {% set items = np_tomorrow['PLACEHOLDER_NORDPOOL_AREA'] if np_tomorrow is defined and 'PLACEHOLDER_NORDPOOL_AREA' in np_tomorrow else [] %}
+            {% set count = states('input_number.cheap_quarters_per_day') | int(12) %}
+            {% if items | count > 0 %}
+              {% set negatives = items | selectattr('price', 'lt', 0) | list %}
+              {% set nonneg = items | rejectattr('price', 'lt', 0) | sort(attribute='price') | list %}
+              {% set selected = negatives + nonneg[:count] %}
+              {% set ns = namespace(out=[]) %}
+              {% for item in selected | sort(attribute='start') %}
+                {% set ns.out = ns.out + [{
+                  'start': item.start,
+                  'end': item.end,
+                  'price': (item.price / 1000)
+                }] %}
+              {% endfor %}
+              {{ ns.out }}
+            {% else %}
+              []
+            {% endif %}
+
+  - sensor:
+      - name: Pool heatpump minutes this hour
+        unique_id: pool_heatpump_minutes_this_hour
+        unit_of_measurement: min
+        state_class: measurement
+        state: >
+          {{ ((states('sensor.pool_heatpump_on_this_hour') | float(0)) * 60) | round(1) }}
+
+      - name: EV charger minutes this hour
+        unique_id: ev_charger_minutes_this_hour
+        unit_of_measurement: min
+        state_class: measurement
+        state: >
+          {{ ((states('sensor.ev_charger_on_this_hour') | float(0)) * 60) | round(1) }}
+
+      - name: Pool cost this hour
+        unique_id: pool_cost_this_hour
+        unit_of_measurement: PLACEHOLDER_CURRENCY
+        state_class: measurement
+        state: >
+          {% set h   = states('sensor.pool_heatpump_on_this_hour') | float(0) %}
+          {% set kw  = states('input_number.pool_hp_power_kw') | float(1.8) %}
+          {% set sek = states('sensor.actual_electricity_price') | float(0) %}
+          {{ (h * kw * sek) | round(2) }}
+
+      - name: EV cost this hour
+        unique_id: ev_cost_this_hour
+        unit_of_measurement: PLACEHOLDER_CURRENCY
+        state_class: measurement
+        state: >
+          {% set h     = states('sensor.ev_charger_on_this_hour') | float(0) %}
+          {% set amps  = states('input_number.ev_charge_current_a') | float(16) %}
+          {% set phases = states('input_number.ev_charge_phases') | float(3) %}
+          {% set kw    = (230 * amps * phases) / 1000 %}
+          {% set sek   = states('sensor.actual_electricity_price') | float(0) %}
+          {{ (h * kw * sek) | round(2) }}
+
+      - name: Pool cost today
+        unique_id: pool_cost_today
+        unit_of_measurement: PLACEHOLDER_CURRENCY
+        state_class: measurement
+        state: >
+          {% set h   = states('sensor.pool_heatpump_on_today') | float(0) %}
+          {% set kw  = states('input_number.pool_hp_power_kw') | float(1.8) %}
+          {% set sek = states('sensor.actual_electricity_price') | float(0) %}
+          {{ (h * kw * sek) | round(2) }}
+
+      - name: EV cost today
+        unique_id: ev_cost_today
+        unit_of_measurement: PLACEHOLDER_CURRENCY
+        state_class: measurement
+        state: >
+          {% set h     = states('sensor.ev_charger_on_today') | float(0) %}
+          {% set amps  = states('input_number.ev_charge_current_a') | float(16) %}
+          {% set phases = states('input_number.ev_charge_phases') | float(3) %}
+          {% set kw    = (230 * amps * phases) / 1000 %}
+          {% set sek   = states('sensor.actual_electricity_price') | float(0) %}
+          {{ (h * kw * sek) | round(2) }}
+
+script:
+  easee_start_charge:
+    alias: Easee start charge
+    sequence:
+      - action: easee.action_command
+        data:
+          # Find your device_id:
+          # Settings → Devices & Services → Easee → your charger → ⋮ → System Information
+          device_id: PLACEHOLDER_EASEE_DEVICE_ID
+          action_command: start
+
+  easee_stop_charge:
+    alias: Easee stop charge
+    sequence:
+      - action: easee.action_command
+        data:
+          device_id: PLACEHOLDER_EASEE_DEVICE_ID
+          action_command: stop
+
+automation:
+  - alias: Pool heat pump start optimized
+    id: pool_heat_pump_start_optimized
+    triggers:
+      - trigger: time_pattern
+        minutes: "/5"
+      - trigger: state
+        entity_id:
+          - binary_sensor.pool_should_run_now
+          - input_boolean.energy_optimization_enabled
+      - trigger: homeassistant
+        event: start
+    conditions:
+      - condition: state
+        entity_id: input_boolean.energy_optimization_enabled
+        state: "on"
+      - condition: state
+        entity_id: binary_sensor.pool_should_run_now
+        state: "on"
+      - condition: state
+        entity_id: PLACEHOLDER_POOL_SWITCH
+        state: "off"
+    actions:
+      - action: switch.turn_on
+        target:
+          entity_id: PLACEHOLDER_POOL_SWITCH
+      - action: timer.start
+        target:
+          entity_id: timer.pool_min_runtime
+        data:
+          duration: "00:20:00"
+    mode: single
+
+  - alias: Pool heat pump stop optimized
+    id: pool_heat_pump_stop_optimized
+    triggers:
+      - trigger: time_pattern
+        minutes: "/5"
+      - trigger: state
+        entity_id:
+          - binary_sensor.pool_should_run_now
+          - input_boolean.energy_optimization_enabled
+      - trigger: event
+        event_type: timer.finished
+        event_data:
+          entity_id: timer.pool_min_runtime
+    conditions:
+      - condition: state
+        entity_id: PLACEHOLDER_POOL_SWITCH
+        state: "on"
+      - condition: state
+        entity_id: timer.pool_min_runtime
+        state: "idle"
+      - condition: or
+        conditions:
+          - condition: state
+            entity_id: input_boolean.energy_optimization_enabled
+            state: "off"
+          - condition: state
+            entity_id: binary_sensor.pool_should_run_now
+            state: "off"
+    actions:
+      - action: switch.turn_off
+        target:
+          entity_id: PLACEHOLDER_POOL_SWITCH
+    mode: single
+
+  - alias: EV charge start optimized
+    id: ev_charge_start_optimized
+    triggers:
+      - trigger: time_pattern
+        minutes: "/5"
+      - trigger: state
+        entity_id:
+          - binary_sensor.ev_should_charge_now
+          - PLACEHOLDER_EV_PLUGGED_IN
+          - PLACEHOLDER_EV2_PLUGGED_IN
+          - PLACEHOLDER_EV_CHARGING
+          - PLACEHOLDER_EV2_CHARGING
+          - input_boolean.energy_optimization_enabled
+      - trigger: homeassistant
+        event: start
+    conditions:
+      - condition: state
+        entity_id: input_boolean.energy_optimization_enabled
+        state: "on"
+      - condition: state
+        entity_id: binary_sensor.ev_should_charge_now
+        state: "on"
+      - condition: state
+        entity_id: PLACEHOLDER_EV_CHARGER_SWITCH
+        state: "off"
+    actions:
+      # Wake the active car so range / state values are fresh before charging starts
+      - action: button.press
+        target:
+          entity_id: >
+            {{ 'PLACEHOLDER_EV_WAKE_BUTTON' if is_state('PLACEHOLDER_EV_PLUGGED_IN', 'on') else 'PLACEHOLDER_EV2_WAKE_BUTTON' }}
+      - delay: "00:00:30"
+      - choose:
+          # ── Solar mode: start at minimum solar amps ────────────────────
+          - conditions:
+              - condition: state
+                entity_id: binary_sensor.solar_surplus_for_ev_now
+                state: "on"
+            sequence:
+              - action: number.set_value
+                target:
+                  entity_id: >
+                    {{ 'PLACEHOLDER_EV_CHARGING_AMPS' if is_state('PLACEHOLDER_EV_PLUGGED_IN', 'on') else 'PLACEHOLDER_EV2_CHARGING_AMPS' }}
+                data:
+                  value: "{{ states('input_number.ev_solar_min_amps') | int(6) }}"
+              - action: input_boolean.turn_on
+                target:
+                  entity_id: input_boolean.ev_solar_charging_active
+
+          # ── Night window mode: minimum amps to reach target by 07:00 ──
+          - conditions:
+              - condition: state
+                entity_id: binary_sensor.ev_night_cheap_window
+                state: "on"
+            sequence:
+              - action: number.set_value
+                target:
+                  entity_id: >
+                    {{ 'PLACEHOLDER_EV_CHARGING_AMPS' if is_state('PLACEHOLDER_EV_PLUGGED_IN', 'on') else 'PLACEHOLDER_EV2_CHARGING_AMPS' }}
+                data:
+                  value: >
+                    {% set h = now().hour %}
+                    {% set m = now().minute %}
+                    {% if h >= 23 %}
+                      {% set hours_left = (24 - h - 1) + 7 + (60 - m) / 60 %}
+                    {% else %}
+                      {% set hours_left = 7 - h - m / 60 %}
+                    {% endif %}
+                    {% set target = states('sensor.active_ev_target_range_km') | float(420) %}
+                    {% set cur    = states('sensor.active_ev_range') | float(0) %}
+                    {% set deficit_km = [target - cur, 0] | max %}
+                    {% set kpa = states('sensor.active_ev_km_per_amp_hour') | float(3.57) %}
+                    {% set min_a = states('input_number.ev_solar_min_amps') | int(6) %}
+                    {% set max_a = states('input_number.ev_charge_current_a') | int(16) %}
+                    {% if hours_left > 0 and deficit_km > 0 %}
+                      {% set needed = (deficit_km / (hours_left * kpa)) | round(0, 'ceil') | int %}
+                      {{ [[needed, min_a] | max, max_a] | min }}
+                    {% else %}
+                      {{ max_a }}
+                    {% endif %}
+              - action: input_boolean.turn_off
+                target:
+                  entity_id: input_boolean.ev_solar_charging_active
+
+        # ── Grid-price cheap quarter: full max amps ─────────────────────
+        default:
+          - action: number.set_value
+            target:
+              entity_id: >
+                {{ 'PLACEHOLDER_EV_CHARGING_AMPS' if is_state('PLACEHOLDER_EV_PLUGGED_IN', 'on') else 'PLACEHOLDER_EV2_CHARGING_AMPS' }}
+            data:
+              value: "{{ states('input_number.ev_charge_current_a') | int(16) }}"
+          - action: input_boolean.turn_off
+            target:
+              entity_id: input_boolean.ev_solar_charging_active
+      - action: script.easee_start_charge
+      - action: timer.start
+        target:
+          entity_id: timer.ev_min_runtime
+        data:
+          duration: "00:30:00"
+    mode: single
+
+  - alias: EV charge stop optimized
+    id: ev_charge_stop_optimized
+    triggers:
+      - trigger: time_pattern
+        minutes: "/5"
+      - trigger: state
+        entity_id:
+          - binary_sensor.ev_should_charge_now
+          - PLACEHOLDER_EV_PLUGGED_IN
+          - PLACEHOLDER_EV2_PLUGGED_IN
+          - PLACEHOLDER_EV_CHARGING
+          - PLACEHOLDER_EV2_CHARGING
+          - input_boolean.energy_optimization_enabled
+      - trigger: event
+        event_type: timer.finished
+        event_data:
+          entity_id: timer.ev_min_runtime
+    conditions:
+      - condition: state
+        entity_id: PLACEHOLDER_EV_CHARGER_SWITCH
+        state: "on"
+      - condition: state
+        entity_id: timer.ev_min_runtime
+        state: "idle"
+      - condition: or
+        conditions:
+          - condition: state
+            entity_id: input_boolean.energy_optimization_enabled
+            state: "off"
+          - condition: state
+            entity_id: binary_sensor.ev_should_charge_now
+            state: "off"
+          # Car reached its own internal charge limit — stop the charger
+          - condition: state
+            entity_id: binary_sensor.active_ev_is_charging
+            state: "off"
+    actions:
+      - action: script.easee_stop_charge
+      - action: number.set_value
+        target:
+          entity_id: >
+            {{ 'PLACEHOLDER_EV_CHARGING_AMPS' if is_state('PLACEHOLDER_EV_PLUGGED_IN', 'on') else 'PLACEHOLDER_EV2_CHARGING_AMPS' }}
+        data:
+          value: "{{ states('input_number.ev_charge_current_a') | int(16) }}"
+      - action: input_boolean.turn_off
+        target:
+          entity_id: input_boolean.ev_solar_charging_active
+    mode: single
+
+  - alias: EV solar dynamic amps
+    id: ev_solar_dynamic_amps
+    description: >
+      Adjusts charging amps every 2 min to track available solar surplus.
+      Only active while in solar charging mode (ev_solar_charging_active = on).
+    triggers:
+      - trigger: time_pattern
+        minutes: "/2"
+    conditions:
+      - condition: state
+        entity_id: PLACEHOLDER_EV_CHARGER_SWITCH
+        state: "on"
+      - condition: state
+        entity_id: input_boolean.ev_solar_charging_active
+        state: "on"
+    actions:
+      - choose:
+          - conditions:
+              - condition: template
+                value_template: >
+                  {{ states('PLACEHOLDER_GRID_EXPORT') | float(0) > 0.5 }}
+            sequence:
+              - action: number.set_value
+                target:
+                  entity_id: >
+                    {{ 'PLACEHOLDER_EV_CHARGING_AMPS' if is_state('PLACEHOLDER_EV_PLUGGED_IN', 'on') else 'PLACEHOLDER_EV2_CHARGING_AMPS' }}
+                data:
+                  value: >
+                    {% set e = 'PLACEHOLDER_EV_CHARGING_AMPS' if is_state('PLACEHOLDER_EV_PLUGGED_IN', 'on') else 'PLACEHOLDER_EV2_CHARGING_AMPS' %}
+                    {{ [15, (states(e) | float(5) + 1) | int] | min }}
+          - conditions:
+              - condition: template
+                value_template: >
+                  {{ states('PLACEHOLDER_GRID_IMPORT') | float(0) > 0.3 }}
+            sequence:
+              - action: number.set_value
+                target:
+                  entity_id: >
+                    {{ 'PLACEHOLDER_EV_CHARGING_AMPS' if is_state('PLACEHOLDER_EV_PLUGGED_IN', 'on') else 'PLACEHOLDER_EV2_CHARGING_AMPS' }}
+                data:
+                  value: >
+                    {% set e = 'PLACEHOLDER_EV_CHARGING_AMPS' if is_state('PLACEHOLDER_EV_PLUGGED_IN', 'on') else 'PLACEHOLDER_EV2_CHARGING_AMPS' %}
+                    {{ [5, (states(e) | float(16) - 1) | int] | max }}
+    mode: single
+
+  - alias: Energy optimizer alerts
+    id: energy_optimizer_alerts
+    description: Sends a persistent notification when critical sensors go unavailable.
+    triggers:
+      - trigger: state
+        entity_id:
+          - sensor.cheapest_quarters_today
+          - PLACEHOLDER_EV_PLUGGED_IN
+          - PLACEHOLDER_EV_RANGE
+          - PLACEHOLDER_EV2_PLUGGED_IN
+          - PLACEHOLDER_EV2_RANGE
+          - PLACEHOLDER_GRID_EXPORT
+        to:
+          - unavailable
+          - unknown
+    actions:
+      - action: persistent_notification.create
+        data:
+          title: "Energy optimizer: sensor issue"
+          message: >
+            {{ trigger.to_state.name }} became {{ trigger.to_state.state }}.
+            Optimization may be impaired until it recovers.
+          notification_id: "energy_optimizer_{{ trigger.entity_id }}"
+    mode: parallel
+    max: 10
+
+  - alias: Energy optimizer Nord Pool stale check
+    id: energy_optimizer_nordpool_stale
+    description: Daily check that Nord Pool prices are fresh.
+    triggers:
+      - trigger: time_pattern
+        hours: "/2"
+    conditions:
+      - condition: state
+        entity_id: input_boolean.energy_optimization_enabled
+        state: "on"
+      - condition: template
+        value_template: >
+          {{ (as_timestamp(now()) - as_timestamp(states.sensor.cheapest_quarters_today.last_updated)) > 7200 }}
+    actions:
+      - action: persistent_notification.create
+        data:
+          title: "Energy optimizer: Nord Pool data stale"
+          message: >
+            Cheapest quarters sensor has not updated in over 2 hours.
+            Check the Nord Pool integration or HA logs.
+          notification_id: energy_optimizer_nordpool_stale
+    mode: single
+
+recorder:
+  purge_keep_days: 14
+
+sensor:
+  - platform: history_stats
+    name: Pool heatpump on this hour
+    unique_id: pool_heatpump_on_this_hour
+    entity_id: PLACEHOLDER_POOL_SWITCH
+    state: "on"
+    type: time
+    start: "{{ now().replace(minute=0, second=0, microsecond=0) }}"
+    end: "{{ now() }}"
+    state_class: total_increasing
+
+  - platform: history_stats
+    name: EV charger on this hour
+    unique_id: ev_charger_on_this_hour
+    entity_id: PLACEHOLDER_EV_CHARGER_SWITCH
+    state: "on"
+    type: time
+    start: "{{ now().replace(minute=0, second=0, microsecond=0) }}"
+    end: "{{ now() }}"
+    state_class: total_increasing
+
+  - platform: history_stats
+    name: Pool heatpump on today
+    unique_id: pool_heatpump_on_today
+    entity_id: PLACEHOLDER_POOL_SWITCH
+    state: "on"
+    type: time
+    start: "{{ now().replace(hour=0, minute=0, second=0, microsecond=0) }}"
+    end: "{{ now() }}"
+    state_class: measurement
+
+  - platform: history_stats
+    name: EV charger on today
+    unique_id: ev_charger_on_today
+    entity_id: PLACEHOLDER_EV_CHARGER_SWITCH
+    state: "on"
+    type: time
+    start: "{{ now().replace(hour=0, minute=0, second=0, microsecond=0) }}"
+    end: "{{ now() }}"
+    state_class: measurement

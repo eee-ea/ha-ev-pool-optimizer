@@ -1,0 +1,241 @@
+type: custom:layout-card
+layout_type: custom:grid-layout
+layout:
+  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr))
+  margin: 0
+cards:
+  - type: glance
+    title: Energy Optimizer Quick View
+    show_state: true
+    state_color: true
+    entities:
+      - entity: input_boolean.energy_optimization_enabled
+        name: Optimizer
+      - entity: PLACEHOLDER_POOL_SWITCH
+        name: Pool
+      - entity: binary_sensor.ev_charging_now
+        name: EV charging
+      - entity: binary_sensor.pool_should_run_now
+        name: Pool logic
+      - entity: binary_sensor.ev_should_charge_now
+        name: EV logic
+      - entity: binary_sensor.now_is_cheap_quarter
+        name: Cheap now
+  - type: entities
+    title: Energy Optimizer - Control
+    show_header_toggle: false
+    entities:
+      - entity: input_boolean.energy_optimization_enabled
+        name: Optimizer enabled
+      - entity: input_number.pool_target_temp
+        name: Pool target temperature
+      - entity: input_number.ev_target_range_km
+        name: EV target range
+      - entity: input_number.ev2_target_range_km
+        name: EV 2 target range
+      - entity: input_number.ev_charge_current_a
+        name: Max EV charge current
+      - entity: input_number.ev_charge_phases
+        name: EV charge phases
+      - entity: input_number.cheap_quarters_per_day
+        name: Cheapest quarters per day
+      - entity: input_number.max_grid_price_pool
+        name: Max pool price
+      - entity: input_number.max_grid_price_ev
+        name: Max EV price
+      - entity: input_number.ev_night_price_limit
+        name: EV night price limit
+      - entity: input_number.ev2_night_price_limit
+        name: EV 2 night price limit
+      - entity: input_number.ev_km_per_amp_hour
+        name: EV efficiency (km/A·h)
+      - entity: input_number.ev2_km_per_amp_hour
+        name: EV 2 efficiency (km/A·h)
+  - type: entities
+    title: Live Status
+    show_header_toggle: false
+    state_color: true
+    entities:
+      - entity: PLACEHOLDER_POOL_TEMPERATURE
+        name: Pool temperature
+      - entity: PLACEHOLDER_EV_RANGE
+        name: EV range
+      - entity: PLACEHOLDER_EV_PLUGGED_IN
+        name: EV plugged in
+      - entity: PLACEHOLDER_EV2_RANGE
+        name: EV 2 range
+      - entity: PLACEHOLDER_EV2_PLUGGED_IN
+        name: EV 2 plugged in
+      - entity: sensor.active_ev_range
+        name: Active EV range
+      - entity: sensor.nord_pool_PLACEHOLDER_NORDPOOL_AREA_current_price
+        name: Spot price
+      - entity: sensor.actual_electricity_price
+        name: Actual electricity price
+      - entity: PLACEHOLDER_SOLAR_FORECAST
+        name: Solar forecast remaining today
+      - entity: PLACEHOLDER_GRID_EXPORT
+        name: Current export power
+      - entity: PLACEHOLDER_POOL_SWITCH
+        name: Pool heat pump
+      - entity: binary_sensor.ev_charging_now
+        name: EV charging now
+      - entity: PLACEHOLDER_EV_CHARGING_AMPS
+        name: Current charging amps (EV 1)
+      - entity: PLACEHOLDER_EV2_CHARGING_AMPS
+        name: Current charging amps (EV 2)
+      - entity: timer.pool_min_runtime
+        name: Pool minimum runtime
+      - entity: timer.ev_min_runtime
+        name: EV minimum runtime
+  - type: entities
+    title: Decision Sensors
+    show_header_toggle: false
+    state_color: true
+    entities:
+      - entity: binary_sensor.pool_needs_heat
+        name: Pool needs heat
+      - entity: binary_sensor.solar_surplus_for_pool_now
+        name: Solar surplus for pool
+      - entity: binary_sensor.grid_price_cheap_for_pool
+        name: Price cheap for pool
+      - entity: binary_sensor.pool_should_run_now
+        name: Pool should run now
+      - entity: binary_sensor.ev_needs_charge
+        name: EV needs charge
+      - entity: binary_sensor.solar_surplus_for_ev_now
+        name: Solar surplus for EV
+      - entity: binary_sensor.enough_solar_left_today_for_ev
+        name: Enough solar left today for EV
+      - entity: binary_sensor.grid_price_cheap_for_ev
+        name: Price cheap for EV
+      - entity: binary_sensor.ev_night_cheap_window
+        name: EV night cheap window
+      - entity: binary_sensor.now_is_cheap_quarter
+        name: Now is cheap quarter
+      - entity: binary_sensor.ev_should_charge_now
+        name: EV should charge now
+      - entity: binary_sensor.ev_charging_now
+        name: EV charging now
+      - entity: input_boolean.ev_solar_charging_active
+        name: Solar charging active
+  - type: conditional
+    conditions:
+      - entity: sensor.cheapest_quarters_tomorrow
+        state_not: "0"
+      - entity: sensor.cheapest_quarters_tomorrow
+        state_not: unknown
+      - entity: sensor.cheapest_quarters_tomorrow
+        state_not: unavailable
+    card:
+      type: markdown
+      title: Cheapest Quarters Tomorrow
+      content: >
+        **Count:** {{ states('sensor.cheapest_quarters_tomorrow') }}
+
+        {% set slots = (state_attr('sensor.cheapest_quarters_tomorrow', 'slots')
+        or []) | sort(attribute='start') %} {% set ns =
+        namespace(current_hour='', lines='') %}
+
+        {% for slot in slots %}
+          {% set dt = as_datetime(slot.start).astimezone() %}
+          {% set hour_label = dt.strftime('%H:00') %}
+          {% if hour_label != ns.current_hour %}
+            {% set ns.current_hour = hour_label %}
+            {% set ns.lines = ns.lines + '\n**' + hour_label + '**\n' %}
+          {% endif %}
+          {% set ns.lines = ns.lines
+            + '- '
+            + dt.strftime('%H:%M')
+            + ' → '
+            + as_datetime(slot.end).astimezone().strftime('%H:%M')
+            + ' : '
+            + ('%.3f'|format(slot.price|float))
+            + ' /kWh\n'
+          %}
+        {% endfor %}
+
+        {{ ns.lines }}
+  - type: markdown
+    title: Cheapest Quarters Today
+    content: >
+      **Count:** {{ states('sensor.cheapest_quarters_today') }}
+
+      **Spot price now:** {{ states('sensor.nord_pool_PLACEHOLDER_NORDPOOL_AREA_current_price') }}
+      /kWh
+
+      **Actual price now:** {{ states('sensor.actual_electricity_price') }}
+      /kWh
+
+      **Cheap now:** {{ states('binary_sensor.now_is_cheap_quarter') }}
+
+      {% set slots = (state_attr('sensor.cheapest_quarters_today', 'slots') or
+      []) | sort(attribute='start') %} {% set ns = namespace(current_hour='',
+      lines='') %}
+
+      {% for slot in slots %}
+        {% set dt = as_datetime(slot.start).astimezone() %}
+        {% set hour_label = dt.strftime('%H:00') %}
+        {% if hour_label != ns.current_hour %}
+          {% set ns.current_hour = hour_label %}
+          {% set ns.lines = ns.lines + '\n**' + hour_label + '**\n' %}
+        {% endif %}
+        {% set ns.lines = ns.lines
+          + '- '
+          + dt.strftime('%H:%M')
+          + ' → '
+          + as_datetime(slot.end).astimezone().strftime('%H:%M')
+          + ' : '
+          + ('%.3f'|format(slot.price|float))
+          + ' /kWh\n'
+        %}
+      {% endfor %}
+
+      {{ ns.lines }}
+  - type: grid
+    columns: 2
+    square: false
+    cards:
+      - type: button
+        name: Start EV charger
+        icon: mdi:ev-station
+        tap_action:
+          action: call-service
+          service: script.easee_start_charge
+        show_state: false
+      - type: button
+        name: Stop EV charger
+        icon: mdi:ev-plug-type2
+        tap_action:
+          action: call-service
+          service: script.easee_stop_charge
+        show_state: false
+      - type: button
+        name: Pool ON
+        icon: mdi:heat-pump
+        tap_action:
+          action: call-service
+          service: switch.turn_on
+          target:
+            entity_id: PLACEHOLDER_POOL_SWITCH
+        show_state: false
+      - type: button
+        name: Pool OFF
+        icon: mdi:power
+        tap_action:
+          action: call-service
+          service: switch.turn_off
+          target:
+            entity_id: PLACEHOLDER_POOL_SWITCH
+        show_state: false
+  - type: history-graph
+    title: Last 24h
+    hours_to_show: 24
+    refresh_interval: 60
+    entities:
+      - entity: PLACEHOLDER_POOL_TEMPERATURE
+      - entity: PLACEHOLDER_EV_RANGE
+      - entity: PLACEHOLDER_EV2_RANGE
+      - entity: sensor.nord_pool_PLACEHOLDER_NORDPOOL_AREA_current_price
+      - entity: sensor.actual_electricity_price
+      - entity: PLACEHOLDER_GRID_EXPORT

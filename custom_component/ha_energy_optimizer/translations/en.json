@@ -1,0 +1,69 @@
+{
+  "config": {
+    "title": "HA Energy Optimizer",
+    "step": {
+      "user": {
+        "title": "Nord Pool",
+        "description": "Select your Nord Pool integration and enter your price area code (e.g. SE4, FI, DK1).",
+        "data": {
+          "PLACEHOLDER_NORDPOOL_CONFIG_ENTRY": "Nord Pool config entry",
+          "PLACEHOLDER_NORDPOOL_AREA": "Price area code"
+        }
+      },
+      "pricing": {
+        "title": "Pricing",
+        "description": "Enter the constants for your electricity tariff. The actual price is calculated as:\n\n`actual = spot × VAT × surcharge + grid_fee`",
+        "data": {
+          "PLACEHOLDER_CURRENCY": "Currency code (e.g. SEK, EUR, DKK)",
+          "PLACEHOLDER_PRICE_VAT": "VAT multiplier (e.g. 1.25 for 25% VAT)",
+          "PLACEHOLDER_PRICE_SURCHARGE": "Energy surcharge multiplier (1.0 if none)",
+          "PLACEHOLDER_GRID_FEE": "Fixed grid fee per kWh (e.g. 0.90)"
+        }
+      },
+      "ev_charger": {
+        "title": "EV Charger (Easee)",
+        "description": "Select the entities and device for your Easee EV charger. Both cars share the same charger device.",
+        "data": {
+          "PLACEHOLDER_EV_CHARGER_SWITCH": "Charger enabled switch",
+          "PLACEHOLDER_EV_CHARGING_AMPS": "EV 1 charging amps number entity",
+          "PLACEHOLDER_EASEE_DEVICE_ID": "Easee charger device"
+        }
+      },
+      "ev_car": {
+        "title": "EV / Cars",
+        "description": "Select the entities for both cars. EV 1 takes priority when plugged in; EV 2 is used when EV 1 is not connected.",
+        "data": {
+          "PLACEHOLDER_EV_PLUGGED_IN": "EV 1 plugged-in binary sensor",
+          "PLACEHOLDER_EV_CHARGING": "EV 1 actively charging binary sensor (OFF when car reaches its own limit)",
+          "PLACEHOLDER_EV_RANGE": "EV 1 range sensor (km)",
+          "PLACEHOLDER_EV_WAKE_BUTTON": "EV 1 force data update button (wakes car before charging)",
+          "PLACEHOLDER_EV2_PLUGGED_IN": "EV 2 plugged-in binary sensor",
+          "PLACEHOLDER_EV2_CHARGING": "EV 2 actively charging binary sensor (OFF when car reaches its own limit)",
+          "PLACEHOLDER_EV2_RANGE": "EV 2 range sensor (km)",
+          "PLACEHOLDER_EV2_WAKE_BUTTON": "EV 2 force data update button (wakes car before charging)",
+          "PLACEHOLDER_EV2_CHARGING_AMPS": "EV 2 charging amps number entity"
+        }
+      },
+      "pool": {
+        "title": "Pool Heat Pump",
+        "description": "Select the switch controlling your pool heat pump and the pool temperature sensor.",
+        "data": {
+          "PLACEHOLDER_POOL_SWITCH": "Pool heat pump switch",
+          "PLACEHOLDER_POOL_TEMPERATURE": "Pool temperature sensor"
+        }
+      },
+      "grid_solar": {
+        "title": "Grid Meter & Solar Forecast",
+        "description": "Select your grid meter sensors (in kW) and the solar forecast sensor reporting remaining production today (in kWh).",
+        "data": {
+          "PLACEHOLDER_GRID_EXPORT": "Grid export sensor (solar → grid, kW)",
+          "PLACEHOLDER_GRID_IMPORT": "Grid import sensor (grid → home, kW)",
+          "PLACEHOLDER_SOLAR_FORECAST": "Solar forecast remaining today (kWh)"
+        }
+      }
+    },
+    "abort": {
+      "already_configured": "HA Energy Optimizer is already configured."
+    }
+  }
+}
