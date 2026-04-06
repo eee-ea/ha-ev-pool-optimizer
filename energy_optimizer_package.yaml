@@ -10,6 +10,10 @@ input_boolean:
     name: EV solar charging active
     initial: false
 
+  force_charge_next_night:
+    name: Force charge next night
+    initial: false
+
 input_number:
   ev_target_range_km:
     name: EV target range
@@ -267,7 +271,8 @@ template:
           {% set in_window = (h >= 23) or (h < 7) %}
           {% set price = states('sensor.actual_electricity_price') | float(99) %}
           {% set limit = states('sensor.active_ev_night_price_limit') | float(1.00) %}
-          {{ in_window and price <= limit }}
+          {% set forced = is_state('input_boolean.force_charge_next_night', 'on') %}
+          {{ in_window and (price <= limit or forced) }}
 
       - name: Now is cheap quarter
         unique_id: now_is_cheap_quarter
@@ -308,7 +313,8 @@ template:
             and (
               is_state('binary_sensor.solar_surplus_for_ev_now', 'on')
               or (
-                is_state('binary_sensor.enough_solar_left_today_for_ev', 'off')
+                not is_state('input_boolean.force_charge_next_night', 'on')
+                and is_state('binary_sensor.enough_solar_left_today_for_ev', 'off')
                 and is_state('binary_sensor.now_is_cheap_quarter', 'on')
                 and is_state('binary_sensor.grid_price_cheap_for_ev', 'on')
               )
@@ -316,11 +322,19 @@ template:
             )
           }}
 
+      - name: Show night charging plan
+        unique_id: show_night_charging_plan
+        state: >
+          {{ is_state('binary_sensor.ev_night_cheap_window', 'on')
+             or is_state('input_boolean.force_charge_next_night', 'on') }}
+
       - name: EV charging now
         unique_id: ev_charging_now
+        # Based on charger switch + plugged-in state so it updates immediately.
         state: >
-          {{ is_state('PLACEHOLDER_EV_CHARGING', 'on')
-             or is_state('PLACEHOLDER_EV2_CHARGING', 'on') }}
+          {{ is_state('PLACEHOLDER_EV_CHARGER_SWITCH', 'on')
+             and (is_state('PLACEHOLDER_EV_PLUGGED_IN', 'on')
+                  or is_state('PLACEHOLDER_EV2_PLUGGED_IN', 'on')) }}
 
   - trigger:
       - trigger: time_pattern
@@ -425,6 +439,169 @@ template:
             {% else %}
               []
             {% endif %}
+
+  - trigger:
+      - trigger: time_pattern
+        minutes: "/15"
+      - trigger: homeassistant
+        event: start
+    action:
+      - action: nordpool.get_prices_for_date
+        data:
+          config_entry: PLACEHOLDER_NORDPOOL_CONFIG_ENTRY
+          date: "{{ now().strftime('%Y-%m-%d') }}"
+          areas: PLACEHOLDER_NORDPOOL_AREA
+          currency: PLACEHOLDER_CURRENCY
+        response_variable: np_today
+      - action: nordpool.get_prices_for_date
+        data:
+          config_entry: PLACEHOLDER_NORDPOOL_CONFIG_ENTRY
+          date: "{{ (now() + timedelta(days=1)).strftime('%Y-%m-%d') }}"
+          areas: PLACEHOLDER_NORDPOOL_AREA
+          currency: PLACEHOLDER_CURRENCY
+        response_variable: np_tomorrow
+    sensor:
+      - name: EV night optimal amps
+        unique_id: ev_night_optimal_amps
+        unit_of_measurement: A
+        state: >
+          {% set max_a = states('input_number.ev_charge_current_a') | int(16) %}
+          {% set min_a = states('input_number.ev_solar_min_amps') | int(6) %}
+          {% set kpa = states('sensor.active_ev_km_per_amp_hour') | float(3.57) %}
+          {% set target = states('sensor.active_ev_target_range_km') | float(420) %}
+          {% set cur = states('sensor.active_ev_range') | float(0) %}
+          {% set deficit_km = [target - cur, 0] | max %}
+          {% if deficit_km <= 0 %}
+            {{ 0 }}
+          {% else %}
+            {% set now_ts = as_timestamp(now()) %}
+            {% set sod = as_timestamp(today_at('00:00')) %}
+            {% set h = now().hour %}
+            {% set in_night = (h >= 23) or (h < 7) %}
+            {% if in_night %}
+              {% set night_start_ts = now_ts %}
+              {% set cutoff_ts = sod + (86400 + 25200 if h >= 23 else 25200) %}
+            {% else %}
+              {% set night_start_ts = sod + 82800 %}
+              {% set cutoff_ts = sod + 86400 + 25200 %}
+            {% endif %}
+            {% set today_items = np_today['PLACEHOLDER_NORDPOOL_AREA'] if np_today is mapping and 'PLACEHOLDER_NORDPOOL_AREA' in np_today else [] %}
+            {% set tomorrow_items = np_tomorrow['PLACEHOLDER_NORDPOOL_AREA'] if np_tomorrow is mapping and 'PLACEHOLDER_NORDPOOL_AREA' in np_tomorrow else [] %}
+            {% set ns = namespace(remaining_prices=[], current_price=none) %}
+            {% for item in today_items + tomorrow_items %}
+              {% set s = as_timestamp(as_datetime(item.start)) %}
+              {% set e = as_timestamp(as_datetime(item.end)) %}
+              {% if in_night and s <= now_ts and now_ts < e %}
+                {% set ns.current_price = item.price %}
+              {% elif in_night and s > now_ts and e <= cutoff_ts %}
+                {% set ns.remaining_prices = ns.remaining_prices + [item.price] %}
+              {% elif not in_night and s >= night_start_ts %}
+                {% if s == night_start_ts %}
+                  {% set ns.current_price = item.price %}
+                {% elif e <= cutoff_ts %}
+                  {% set ns.remaining_prices = ns.remaining_prices + [item.price] %}
+                {% endif %}
+              {% endif %}
+            {% endfor %}
+            {% set q_remaining = ns.remaining_prices | count + 1 %}
+            {% set raw_guarantee = deficit_km / (q_remaining * kpa / 4) %}
+            {% set guarantee_a = [[raw_guarantee | round(0, 'ceil') | int, min_a] | max, max_a] | min %}
+            {% if q_remaining <= 3 or ns.current_price is none or ns.remaining_prices | count == 0 %}
+              {{ max_a }}
+            {% else %}
+              {% set cheapest_remaining = ns.remaining_prices | min %}
+              {% if ns.current_price > 1.10 * cheapest_remaining %}
+                {{ guarantee_a }}
+              {% else %}
+                {{ max_a }}
+              {% endif %}
+            {% endif %}
+          {% endif %}
+        attributes:
+          deficit_km: >
+            {{ ([states('sensor.active_ev_target_range_km') | float(420) - states('sensor.active_ev_range') | float(0), 0] | max) | round(1) }}
+          guarantee_amps: >
+            {% set max_a = states('input_number.ev_charge_current_a') | int(16) %}
+            {% set min_a = states('input_number.ev_solar_min_amps') | int(6) %}
+            {% set kpa = states('sensor.active_ev_km_per_amp_hour') | float(3.57) %}
+            {% set target = states('sensor.active_ev_target_range_km') | float(420) %}
+            {% set cur = states('sensor.active_ev_range') | float(0) %}
+            {% set deficit_km = [target - cur, 0] | max %}
+            {% set now_ts = as_timestamp(now()) %}
+            {% set sod = as_timestamp(today_at('00:00')) %}
+            {% set h = now().hour %}
+            {% set in_night = (h >= 23) or (h < 7) %}
+            {% if in_night %}
+              {% set cutoff_ts = sod + (86400 + 25200 if h >= 23 else 25200) %}
+              {% set q_remaining = [((cutoff_ts - now_ts) / 900) | round(0, 'ceil') | int, 1] | max %}
+            {% else %}
+              {% set cutoff_ts = sod + 86400 + 25200 %}
+              {% set night_start_ts = sod + 82800 %}
+              {% set q_remaining = [((cutoff_ts - night_start_ts) / 900) | round(0, 'ceil') | int, 1] | max %}
+            {% endif %}
+            {% if deficit_km > 0 %}
+              {{ [[((deficit_km / (q_remaining * kpa / 4)) | round(0, 'ceil') | int), min_a] | max, max_a] | min }}
+            {% else %}
+              {{ 0 }}
+            {% endif %}
+          schedule: >
+            {% set max_a = states('input_number.ev_charge_current_a') | int(16) %}
+            {% set min_a = states('input_number.ev_solar_min_amps') | int(6) %}
+            {% set kpa = states('sensor.active_ev_km_per_amp_hour') | float(3.57) %}
+            {% set phases = states('input_number.ev_charge_phases') | float(3) %}
+            {% set target = states('sensor.active_ev_target_range_km') | float(420) %}
+            {% set cur = states('sensor.active_ev_range') | float(0) %}
+            {% set deficit_km = [target - cur, 0] | max %}
+            {% set now_ts = as_timestamp(now()) %}
+            {% set sod = as_timestamp(today_at('00:00')) %}
+            {% set h = now().hour %}
+            {% set in_night = (h >= 23) or (h < 7) %}
+            {% if in_night %}
+              {% set slot_from_ts = now_ts - 900 %}
+              {% set cutoff_ts = sod + (86400 + 25200 if h >= 23 else 25200) %}
+            {% else %}
+              {% set slot_from_ts = sod + 82800 %}
+              {% set cutoff_ts = sod + 86400 + 25200 %}
+            {% endif %}
+            {% set today_items = np_today['PLACEHOLDER_NORDPOOL_AREA'] if np_today is mapping and 'PLACEHOLDER_NORDPOOL_AREA' in np_today else [] %}
+            {% set tomorrow_items = np_tomorrow['PLACEHOLDER_NORDPOOL_AREA'] if np_tomorrow is mapping and 'PLACEHOLDER_NORDPOOL_AREA' in np_tomorrow else [] %}
+            {% set ns = namespace(slots=[]) %}
+            {% for item in today_items + tomorrow_items %}
+              {% set s = as_timestamp(as_datetime(item.start)) %}
+              {% set e = as_timestamp(as_datetime(item.end)) %}
+              {% if s >= slot_from_ts and e <= cutoff_ts %}
+                {% set ns.slots = ns.slots + [{'s': s, 'price': item.price}] %}
+              {% endif %}
+            {% endfor %}
+            {% set ns.slots = ns.slots | sort(attribute='s') %}
+            {% set q_total = ns.slots | count %}
+            {% set ns2 = namespace(out=[], deficit=deficit_km) %}
+            {% for i in range(q_total) %}
+              {% set slot = ns.slots[i] %}
+              {% set q_left = q_total - i %}
+              {% if ns2.deficit <= 0 %}
+                {% set amps = 0 %}
+              {% elif q_left <= 3 %}
+                {% set amps = max_a %}
+              {% else %}
+                {% set raw_g = ns2.deficit / (q_left * kpa / 4) %}
+                {% set g_a = [[raw_g | round(0, 'ceil') | int, min_a] | max, max_a] | min %}
+                {% set ns3 = namespace(future_min=999999) %}
+                {% for j in range(i + 1, q_total) %}
+                  {% if ns.slots[j].price < ns3.future_min %}
+                    {% set ns3.future_min = ns.slots[j].price %}
+                  {% endif %}
+                {% endfor %}
+                {% set amps = g_a if slot.price > 1.10 * ns3.future_min else max_a %}
+              {% endif %}
+              {% set spot = slot.price / 1000 %}
+              {% set actual = spot * PLACEHOLDER_PRICE_VAT * PLACEHOLDER_PRICE_SURCHARGE + PLACEHOLDER_GRID_FEE %}
+              {% set kw = amps * 230 * phases / 1000 %}
+              {% set cost = (kw * actual * 0.25) | round(2) %}
+              {% set ns2.deficit = [ns2.deficit - amps * kpa / 4, 0] | max %}
+              {% set ns2.out = ns2.out + [{'t': slot.s | timestamp_custom('%H:%M'), 'a': amps, 'c': cost, 'p': (spot * PLACEHOLDER_PRICE_VAT * PLACEHOLDER_PRICE_SURCHARGE + PLACEHOLDER_GRID_FEE) | round(3)}] %}
+            {% endfor %}
+            {{ ns2.out }}
 
   - sensor:
       - name: Pool heatpump minutes this hour
@@ -552,19 +729,17 @@ automation:
           entity_id: timer.pool_min_runtime
     conditions:
       - condition: state
+        entity_id: input_boolean.energy_optimization_enabled
+        state: "on"
+      - condition: state
         entity_id: PLACEHOLDER_POOL_SWITCH
         state: "on"
       - condition: state
         entity_id: timer.pool_min_runtime
         state: "idle"
-      - condition: or
-        conditions:
-          - condition: state
-            entity_id: input_boolean.energy_optimization_enabled
-            state: "off"
-          - condition: state
-            entity_id: binary_sensor.pool_should_run_now
-            state: "off"
+      - condition: state
+        entity_id: binary_sensor.pool_should_run_now
+        state: "off"
     actions:
       - action: switch.turn_off
         target:
@@ -603,6 +778,11 @@ automation:
           entity_id: >
             {{ 'PLACEHOLDER_EV_WAKE_BUTTON' if is_state('PLACEHOLDER_EV_PLUGGED_IN', 'on') else 'PLACEHOLDER_EV2_WAKE_BUTTON' }}
       - delay: "00:00:30"
+      - action: timer.start
+        target:
+          entity_id: timer.ev_min_runtime
+        data:
+          duration: "00:30:00"
       - choose:
           # ── Solar mode: start at minimum solar amps ────────────────────
           - conditions:
@@ -620,7 +800,7 @@ automation:
                 target:
                   entity_id: input_boolean.ev_solar_charging_active
 
-          # ── Night window mode: minimum amps to reach target by 07:00 ──
+          # ── Night window mode: price-optimised amps from sensor ──
           - conditions:
               - condition: state
                 entity_id: binary_sensor.ev_night_cheap_window
@@ -631,26 +811,7 @@ automation:
                   entity_id: >
                     {{ 'PLACEHOLDER_EV_CHARGING_AMPS' if is_state('PLACEHOLDER_EV_PLUGGED_IN', 'on') else 'PLACEHOLDER_EV2_CHARGING_AMPS' }}
                 data:
-                  value: >
-                    {% set h = now().hour %}
-                    {% set m = now().minute %}
-                    {% if h >= 23 %}
-                      {% set hours_left = (24 - h - 1) + 7 + (60 - m) / 60 %}
-                    {% else %}
-                      {% set hours_left = 7 - h - m / 60 %}
-                    {% endif %}
-                    {% set target = states('sensor.active_ev_target_range_km') | float(420) %}
-                    {% set cur    = states('sensor.active_ev_range') | float(0) %}
-                    {% set deficit_km = [target - cur, 0] | max %}
-                    {% set kpa = states('sensor.active_ev_km_per_amp_hour') | float(3.57) %}
-                    {% set min_a = states('input_number.ev_solar_min_amps') | int(6) %}
-                    {% set max_a = states('input_number.ev_charge_current_a') | int(16) %}
-                    {% if hours_left > 0 and deficit_km > 0 %}
-                      {% set needed = (deficit_km / (hours_left * kpa)) | round(0, 'ceil') | int %}
-                      {{ [[needed, min_a] | max, max_a] | min }}
-                    {% else %}
-                      {{ max_a }}
-                    {% endif %}
+                  value: "{{ [states('sensor.ev_night_optimal_amps') | int(6), states('input_number.ev_solar_min_amps') | int(6)] | max }}"
               - action: input_boolean.turn_off
                 target:
                   entity_id: input_boolean.ev_solar_charging_active
@@ -667,11 +828,6 @@ automation:
             target:
               entity_id: input_boolean.ev_solar_charging_active
       - action: script.easee_start_charge
-      - action: timer.start
-        target:
-          entity_id: timer.ev_min_runtime
-        data:
-          duration: "00:30:00"
     mode: single
 
   - alias: EV charge stop optimized
@@ -693,6 +849,9 @@ automation:
           entity_id: timer.ev_min_runtime
     conditions:
       - condition: state
+        entity_id: input_boolean.energy_optimization_enabled
+        state: "on"
+      - condition: state
         entity_id: PLACEHOLDER_EV_CHARGER_SWITCH
         state: "on"
       - condition: state
@@ -700,9 +859,6 @@ automation:
         state: "idle"
       - condition: or
         conditions:
-          - condition: state
-            entity_id: input_boolean.energy_optimization_enabled
-            state: "off"
           - condition: state
             entity_id: binary_sensor.ev_should_charge_now
             state: "off"
@@ -766,6 +922,120 @@ automation:
                   value: >
                     {% set e = 'PLACEHOLDER_EV_CHARGING_AMPS' if is_state('PLACEHOLDER_EV_PLUGGED_IN', 'on') else 'PLACEHOLDER_EV2_CHARGING_AMPS' %}
                     {{ [5, (states(e) | float(16) - 1) | int] | max }}
+    mode: single
+
+  - alias: EV force charge next night reset
+    id: ev_force_charge_next_night_reset
+    description: >
+      Clears the force-charge flag at 07:00 or as soon as the EV no longer
+      needs charge, whichever comes first.
+    triggers:
+      - trigger: time
+        at: "07:00:00"
+      - trigger: state
+        entity_id: binary_sensor.ev_needs_charge
+        to: "off"
+    conditions:
+      - condition: state
+        entity_id: input_boolean.force_charge_next_night
+        state: "on"
+    actions:
+      - action: input_boolean.turn_off
+        target:
+          entity_id: input_boolean.force_charge_next_night
+    mode: single
+
+  - alias: EV plug-in reset charger
+    id: ev_plugin_reset_charger
+    description: >
+      When a car is plugged in while the charger is already enabled,
+      stop charging immediately so the optimizer can restart it under the
+      correct conditions instead of charging uncontrolled.
+    triggers:
+      - trigger: state
+        entity_id:
+          - PLACEHOLDER_EV_PLUGGED_IN
+          - PLACEHOLDER_EV2_PLUGGED_IN
+        to: "on"
+    conditions:
+      - condition: state
+        entity_id: input_boolean.energy_optimization_enabled
+        state: "on"
+      - condition: state
+        entity_id: PLACEHOLDER_EV_CHARGER_SWITCH
+        state: "on"
+    actions:
+      - action: script.easee_stop_charge
+      - action: timer.cancel
+        target:
+          entity_id: timer.ev_min_runtime
+    mode: single
+
+  - alias: EV night dynamic amps
+    id: ev_night_dynamic_amps
+    description: >
+      Every 15 min during the night window, adjusts charging amps based on
+      whether the current quarter's price is more than 10 % above the cheapest
+      remaining night quarter. Guarantees target range is reached by 07:00.
+    triggers:
+      - trigger: time_pattern
+        minutes: "/15"
+    conditions:
+      - condition: state
+        entity_id: input_boolean.energy_optimization_enabled
+        state: "on"
+      - condition: state
+        entity_id: binary_sensor.ev_night_cheap_window
+        state: "on"
+      - condition: state
+        entity_id: PLACEHOLDER_EV_CHARGER_SWITCH
+        state: "on"
+      - condition: state
+        entity_id: input_boolean.ev_solar_charging_active
+        state: "off"
+    actions:
+      - action: number.set_value
+        target:
+          entity_id: >
+            {{ 'PLACEHOLDER_EV_CHARGING_AMPS' if is_state('PLACEHOLDER_EV_PLUGGED_IN', 'on') else 'PLACEHOLDER_EV2_CHARGING_AMPS' }}
+        data:
+          value: "{{ [states('sensor.ev_night_optimal_amps') | int(6), states('input_number.ev_solar_min_amps') | int(6)] | max }}"
+    mode: single
+
+  - alias: EV night pre-quarter wake
+    id: ev_night_pre_quarter_wake
+    description: >
+      30 s before each 15-min slot boundary during the night window, forces a
+      data update on the active car so range and charge state are fresh when
+      the dynamic-amps automation fires.
+    triggers:
+      - trigger: time_pattern
+        minutes: "14"
+        seconds: "30"
+      - trigger: time_pattern
+        minutes: "29"
+        seconds: "30"
+      - trigger: time_pattern
+        minutes: "44"
+        seconds: "30"
+      - trigger: time_pattern
+        minutes: "59"
+        seconds: "30"
+    conditions:
+      - condition: state
+        entity_id: input_boolean.energy_optimization_enabled
+        state: "on"
+      - condition: state
+        entity_id: binary_sensor.ev_night_cheap_window
+        state: "on"
+      - condition: state
+        entity_id: PLACEHOLDER_EV_CHARGER_SWITCH
+        state: "on"
+    actions:
+      - action: button.press
+        target:
+          entity_id: >
+            {{ 'PLACEHOLDER_EV_WAKE_BUTTON' if is_state('PLACEHOLDER_EV_PLUGGED_IN', 'on') else 'PLACEHOLDER_EV2_WAKE_BUTTON' }}
     mode: single
 
   - alias: Energy optimizer alerts

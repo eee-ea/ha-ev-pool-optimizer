@@ -552,19 +552,17 @@ automation:
           entity_id: timer.pool_min_runtime
     conditions:
       - condition: state
+        entity_id: input_boolean.energy_optimization_enabled
+        state: "on"
+      - condition: state
         entity_id: PLACEHOLDER_POOL_SWITCH
         state: "on"
       - condition: state
         entity_id: timer.pool_min_runtime
         state: "idle"
-      - condition: or
-        conditions:
-          - condition: state
-            entity_id: input_boolean.energy_optimization_enabled
-            state: "off"
-          - condition: state
-            entity_id: binary_sensor.pool_should_run_now
-            state: "off"
+      - condition: state
+        entity_id: binary_sensor.pool_should_run_now
+        state: "off"
     actions:
       - action: switch.turn_off
         target:
@@ -693,6 +691,9 @@ automation:
           entity_id: timer.ev_min_runtime
     conditions:
       - condition: state
+        entity_id: input_boolean.energy_optimization_enabled
+        state: "on"
+      - condition: state
         entity_id: PLACEHOLDER_EV_CHARGER_SWITCH
         state: "on"
       - condition: state
@@ -700,9 +701,6 @@ automation:
         state: "idle"
       - condition: or
         conditions:
-          - condition: state
-            entity_id: input_boolean.energy_optimization_enabled
-            state: "off"
           - condition: state
             entity_id: binary_sensor.ev_should_charge_now
             state: "off"

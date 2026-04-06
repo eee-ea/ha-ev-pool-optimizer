@@ -27,6 +27,9 @@ cards:
     entities:
       - entity: input_boolean.energy_optimization_enabled
         name: Optimizer enabled
+      - entity: input_boolean.force_charge_next_night
+        name: Force charge next night
+        icon: mdi:battery-charging-high
       - entity: input_number.pool_target_temp
         name: Pool target temperature
       - entity: input_number.ev_target_range_km
@@ -119,6 +122,42 @@ cards:
         name: EV charging now
       - entity: input_boolean.ev_solar_charging_active
         name: Solar charging active
+      - entity: binary_sensor.show_night_charging_plan
+        name: Night plan active
+  - type: conditional
+    conditions:
+      - entity: binary_sensor.show_night_charging_plan
+        state: "on"
+    card:
+      type: markdown
+      title: Night Charging Plan
+      content: >-
+        {%- set sched = state_attr('sensor.ev_night_optimal_amps', 'schedule') or [] -%}
+        {%- set deficit = state_attr('sensor.ev_night_optimal_amps', 'deficit_km') | float(0) -%}
+        {%- set guarantee = state_attr('sensor.ev_night_optimal_amps', 'guarantee_amps') | int(0) -%}
+        {%- set now_a = states('sensor.ev_night_optimal_amps') | int(0) -%}
+        {%- set h = now().hour -%}
+        {%- set in_night = (h >= 23) or (h < 7) -%}
+        {%- set now_ts = as_timestamp(now()) -%}
+        {%- if in_night -%}
+        **Deficit:** {{ deficit }} km  **Guarantee floor:** {{ guarantee }} A  **Now:** {{ now_a }} A
+        {%- else -%}
+        **Preview** — charging starts 23:00  **Deficit:** {{ deficit }} km  **Guarantee floor:** {{ guarantee }} A
+        {%- endif %}
+
+        {%- set ns = namespace(rows='', total=0) -%}
+        {%- for s in sched -%}
+          {%- set slot_ts = as_timestamp(strptime(now().strftime('%Y-%m-%d ') + s.t, '%Y-%m-%d %H:%M')) -%}
+          {%- set is_current = in_night and slot_ts <= now_ts and now_ts < slot_ts + 900 -%}
+          {%- set marker = ' ◀' if is_current else '' -%}
+          {%- set ns.rows = ns.rows + '| ' + s.t + marker + ' | ' + s.a|string + ' A | ' + s.p|string + ' ¢ | ' + s.c|string + ' SEK |\n' -%}
+          {%- set ns.total = ns.total + s.c -%}
+        {%- endfor -%}
+
+        | Time | Amps | SEK/kWh | Cost |
+        |------|-----:|--------:|-----:|
+        {{ ns.rows -}}
+        | **Total** | | | **{{ ns.total | round(2) }} SEK** |
   - type: conditional
     conditions:
       - entity: sensor.cheapest_quarters_tomorrow

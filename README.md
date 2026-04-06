@@ -16,6 +16,17 @@ Once started, a minimum runtime timer prevents rapid on/off cycling (20 min pool
 
 All negative Nord Pool price hours are automatically included in the cheapest-hours selection regardless of the `cheap_quarters_per_day` count.
 
+### Smart night charging
+
+Within the 23:00–07:00 window the charge current is re-evaluated every 15 minutes:
+
+- The optimizer looks at all remaining night quarters and finds the cheapest one ahead.
+- If the current quarter costs more than 10 % above that cheapest future quarter, it throttles to the *guarantee current* — the minimum amps needed so the car still reaches the target range by 07:00 assuming all remaining quarters run at that current.
+- Otherwise it charges at maximum current — no saving is worth deferring.
+- When fewer than 3 quarters remain before 07:00 it always charges at maximum (urgency override).
+
+A **Force charge next night** toggle bypasses the price gate entirely — the night window opens at 23:00 regardless of spot price — while still applying the price-optimised current schedule within the window. The toggle clears automatically at 07:00 or when the target range is reached.
+
 ## Files
 
 | File | Purpose |
@@ -32,6 +43,8 @@ python setup_wizard.py
 ```
 
 The wizard asks for your entity names and configuration values, then writes ready-to-use YAML files to a directory of your choice. Requires Python 3.6+, no additional packages needed.
+
+> **Tip:** Running the wizard is the recommended way to set up all entities. It covers every `PLACEHOLDER_*` value in the YAML files and validates your Nord Pool area code and config entry ID step by step.
 
 ## Prerequisites
 
@@ -116,11 +129,12 @@ All settings are exposed as `input_number` / `input_boolean` helpers and can be 
 | Entity | Default | Description |
 |---|---|---|
 | `input_number.ev_target_range_km` | 420 km | Charger runs until this range is reached |
-| `input_number.ev_charge_current_a` | 16 A | Maximum charge current; used when charging from grid |
+| `input_number.ev_charge_current_a` | 16 A | Maximum charge current |
 | `input_number.ev_charge_phases` | 3 | Number of phases |
 | `input_number.ev_solar_min_amps` | 6 A | Minimum current to start solar charging; dynamic control ramps between this and 15 A |
 | `input_number.max_grid_price_ev` | 0.70 | Maximum actual price at which grid charging is allowed |
-| `input_number.ev_night_price_limit` | 0.70 | Night window (23:00–07:00) price ceiling |
+| `input_number.ev_night_price_limit` | 0.70 | Night window (23:00–07:00) price ceiling; bypassed when Force charge is on |
+| `input_boolean.force_charge_next_night` | off | Forces the night window open regardless of price; applies price-optimised current schedule within the window |
 
 ### Pricing
 
@@ -143,9 +157,15 @@ The constants are set during wizard setup (or by replacing the `PLACEHOLDER_PRIC
 ```
 EV_PLUGGED_IN ON + range < target  →  ev_needs_charge
   + (solar_export ≥ ev_solar_min_amps × phases × 230 V)  →  solar_surplus_for_ev_now
-  + (current hour in cheapest N AND price ≤ threshold)    →  cheap quarter path
-  + (23:00–07:00 AND price ≤ night limit)                 →  night window path
+  + (NOT force_charge_next_night
+     AND current hour in cheapest N AND price ≤ threshold)→  cheap quarter path
+  + (23:00–07:00 AND (price ≤ night limit OR force_charge))→  night window path
   →  ev_should_charge_now  →  automation starts charger
+
+Night window current (re-evaluated every 15 min):
+  current_price > 1.10 × cheapest_remaining → guarantee_amps (throttle)
+  else                                       → max amps
+  quarters_remaining ≤ 3                    → max amps (urgency override)
 ```
 
 ### Decision chain — Pool
@@ -215,7 +235,8 @@ Responsive grid (1 column on phone, 2+ on wider screens) containing:
 5. **Cheapest Quarters Today** — markdown list of today's cheap hourly slots with prices
 6. **Cheapest Quarters Tomorrow** — same for tomorrow (hidden when data is unavailable)
 7. **Manual controls** — Start/Stop EV charger and Pool ON/OFF buttons
-8. **History graph** — 24-hour chart of pool temp, EV range, prices, and solar export
+8. **Night Charging Plan** — conditional table showing per-15-min amps, price, and cost for the coming night window (visible when night window active or Force charge is on; shows "Preview" before 23:00)
+9. **History graph** — 24-hour chart of pool temp, EV range, prices, and solar export
 
 ### plotly_card.yaml
 
